@@ -12,10 +12,21 @@
 |---|---|---|
 | 2D 悬浮窗数量 | 3 个（超过自动销毁最旧窗口） | **5 个稳定上限**（3–16 可调） |
 
+✅ **已在 Pico 4 5.13.7 CN 版本上实测通过。**
+
 > ⚠️ **为什么是 5 而不是无上限/127？**
 > Pico 的 3 窗口限制**不是产品阉割**，而是把提交给 OpenXR 的 composition layer 数量压在运行时硬顶以内。
-> 实测：**5 个稳定，6 个必崩**（`XR_ERROR_LAYER_LIMIT_EXCEEDED` → `xrBeginFrame` 乱序 → `std::logic_error` → SIGABRT，
-> 崩溃进程 `com.picoxr.xrshell`，`OpenXRLoader.cpp:64`）。
+> 实测：**5 个稳定，6 个必崩**。
+>
+> **6 窗口崩溃链：**
+> ```
+> XRShell-Native: OpenXRLoader:: call endFrame failed: XR_ERROR_LAYER_LIMIT_EXCEEDED
+> APxrRuntime:    xrWaitFrame && xrEndFrame logic confusion（重复数百次日志）
+> APxrRuntime:    xrBeginFrame without xrWaitFrame
+> → XR_ERROR_CALL_ORDER_INVALID → std::logic_error → SIGABRT
+>    pid com.picoxr.xrshell, tid XRShellEngineTh, OpenXRLoader.cpp:64
+> ```
+> 崩溃进程 `com.picoxr.xrshell`，OpenXR 运行时 `com.pico.xr.openxr_runtime` 的 composition layer 数量有硬上限。
 > 所以正确做法是"把上限抬到 OpenXR 天花板（5）"，不是"去掉上限"。
 
 ---
