@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="xposedscope">
+        <item>com.picovr.systemext</item>
+        <item>android</item>
+        <item>system</item>
+    </string-array>
+    <string name="app_name">PICO Window Limit</string>
+</resources>

@@ -1,0 +1,6 @@
+id=pico_winlimit_fix
+name=PICO WinLimit Boot Fix
+version=v1.0
+versionCode=1
+author=horizon
+description=Restarts com.picovr.systemext once after boot so the Vector/LSPosed window-limit module actually gets injected (works around the scope-mapping race).
