@@ -31,8 +31,9 @@ public class WindowLimit implements IXposedHookLoadPackage {
 
     public static final int DEFAULT_WINDOW_LIMIT = 5;
     public static final int STOCK_WINDOW_LIMIT = 3;
-    public static final int MAX_WINDOW_LIMIT = 16;
+    public static final int MAX_WINDOW_LIMIT = 5;
     public static final String PROP_WINDOW_LIMIT = "persist.pico.window.limit";
+    public static final String RESFIX_PANELS_KEY = "pico_systemext_coord_resfix_panels";
 
     /** Live-tunable: setprop persist.pico.window.limit N (then restart SystemExt). */
     public static int getWindowLimit() {
@@ -44,8 +45,35 @@ public class WindowLimit implements IXposedHookLoadPackage {
         } catch (Throwable ignored) {
         }
         if (v < STOCK_WINDOW_LIMIT) v = STOCK_WINDOW_LIMIT;
-        if (v > MAX_WINDOW_LIMIT) v = MAX_WINDOW_LIMIT;
+        int panels = getPersistentDockPanels();
+        int max = Math.max(STOCK_WINDOW_LIMIT, MAX_WINDOW_LIMIT - panels);
+        if (v > max) v = max;
         return v;
+    }
+
+    private static int getPersistentDockPanels() {
+        try {
+            Object context = Class.forName("android.app.ActivityThread")
+                    .getMethod("currentApplication").invoke(null);
+            Object resolver = context.getClass().getMethod("getContentResolver").invoke(context);
+            Class<?> cr = Class.forName("android.content.ContentResolver");
+            int value = ((Integer) Class.forName("android.provider.Settings$Global")
+                    .getMethod("getInt", cr, String.class, int.class)
+                    .invoke(null, resolver, RESFIX_PANELS_KEY, 0)).intValue();
+            return Math.max(0, Math.min(2, value));
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
+    private static int readRequestedWindowLimit() {
+        try {
+            Class<?> sp = Class.forName("android.os.SystemProperties");
+            return (Integer) sp.getMethod("getInt", String.class, int.class)
+                    .invoke(null, PROP_WINDOW_LIMIT, DEFAULT_WINDOW_LIMIT);
+        } catch (Throwable ignored) {
+            return DEFAULT_WINDOW_LIMIT;
+        }
     }
 
     @Override
@@ -70,8 +98,9 @@ public class WindowLimit implements IXposedHookLoadPackage {
             XposedHelpers.findAndHookMethod(rootContainer, "handleDestroyApp",
                     appContainer, new BlockDestroy());
 
-            XposedBridge.log(TAG + ": installed (limit=" + getWindowLimit()
-                    + ", prop=" + PROP_WINDOW_LIMIT + ")");
+            XposedBridge.log(TAG + ": installed (requested=" + readRequestedWindowLimit()
+                    + ", effective=" + getWindowLimit() + ", dockPanels="
+                    + getPersistentDockPanels() + ")");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": hook failed");
             XposedBridge.log(t);
