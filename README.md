@@ -2,7 +2,11 @@
 
 针对 **Pico 4 (A8110, 国行, Android 10 / API 29 / 固件 5.13.7)** 的 2D 悬浮窗数量上限解除模块。
 
-把系统对 **2D 悬浮窗数量** 的硬编码限制从 **3 个** 提升到 **5 个稳定上限**（3–16 可调），通过 Zygisk Vector (LSPosed 兼容框架) 注入实现。
+把系统对 **2D 悬浮窗数量** 的硬编码限制从 **3 个** 提升到 **5 个稳定上限**（实际可用 3–5，取决于当前打开的 dock 面板数），通过 Zygisk Vector (LSPosed 兼容框架) 注入实现。
+
+> **源码更新：** 上限不再按 ResFix 配置的 dock 应用数量静态让位，而是实时读取
+> `systemext` 的 `RootAppContainer.getShowingContainer(2002, 2001)`，只减掉**当前真正
+> 可见**的 dock 面板。`pico_systemext_coord_resfix_panels` 仅作为读取失败时的回退。
 
 ---
 
@@ -10,7 +14,7 @@
 
 | 项目 | 原厂 | 解锁后 |
 |---|---|---|
-| 2D 悬浮窗数量 | 3 个（超过自动销毁最旧窗口） | **5 个稳定上限**（3–16 可调） |
+| 2D 悬浮窗数量 | 3 个（超过自动销毁最旧窗口） | **5 个稳定上限**（实际 3–5，按可见 dock 面板数让位） |
 
 ✅ **已在 Pico 4 5.13.7 CN 版本上实测通过。**
 
@@ -70,7 +74,13 @@ Vector 在 t+1s 注入 framework，但模块映射在 t+3s 才就绪，PERSISTEN
 
 | 属性 | 默认 | 范围 | 作用 |
 |---|---|---|---|
-| `persist.pico.window.limit` | 5 | 3–16 | 窗口上限。改完 `pkill -f com.picovr.systemext`（PERSISTENT 自动重生） |
+| `persist.pico.window.limit` | 5 | 3–5 | 请求的窗口上限。改完 `pkill -f com.picovr.systemext`（PERSISTENT 自动重生） |
+
+**实际生效值 = max(3, 请求值 - 当前可见 dock 面板数)。**  
+例如：dock 全关 → 5；打开 1 个 dock 面板 → 4；打开 2 个及以上 → 3。
+计数来自 `RootAppContainer.getShowingContainer(2002, 2001)`，只算当前 `isVisible()`
+的近场面板；不再使用“配置了几个 dock 应用”的静态数字。这样既保住 OpenXR layer
+预算，也不会因为收藏夹里放了 4 个 dock 应用就永远被压到 3。
 
 钳制范围是**保命**用的，防止填个离谱值进崩溃循环。
 

@@ -34,6 +34,7 @@ public class WindowLimit implements IXposedHookLoadPackage {
     public static final int MAX_WINDOW_LIMIT = 5;
     public static final String PROP_WINDOW_LIMIT = "persist.pico.window.limit";
     public static final String RESFIX_PANELS_KEY = "pico_systemext_coord_resfix_panels";
+    private static volatile ClassLoader sClassLoader;
 
     /** Live-tunable: setprop persist.pico.window.limit N (then restart SystemExt). */
     public static int getWindowLimit() {
@@ -45,17 +46,48 @@ public class WindowLimit implements IXposedHookLoadPackage {
         } catch (Throwable ignored) {
         }
         if (v < STOCK_WINDOW_LIMIT) v = STOCK_WINDOW_LIMIT;
-        int panels = getPersistentDockPanels();
+        int panels = getLiveDockPanels();
         int max = Math.max(STOCK_WINDOW_LIMIT, MAX_WINDOW_LIMIT - panels);
         if (v > max) v = max;
         return v;
     }
 
-    private static int getPersistentDockPanels() {
+    /**
+     * Dock panels actually on screen right now (near-space app stack 2002 plus its
+     * dialogs 2001). Counting configured dock apps instead (the old
+     * resfix_panels setting) over-reserves layers: four favorites pinned to the
+     * dock cost nothing while none of them is open.
+     */
+    private static int getLiveDockPanels() {
         try {
-            Object context = Class.forName("android.app.ActivityThread")
-                    .getMethod("currentApplication").invoke(null);
+            ClassLoader cl = sClassLoader;
+            if (cl == null) return getConfiguredDockPanels();
+            Class<?> serviceClass = XposedHelpers.findClass(
+                    "com.bytedance.nativeshell.appmanager.AppManagerService", cl);
+            Object service = XposedHelpers.callStaticMethod(serviceClass, "getInstance");
+            if (service == null) return getConfiguredDockPanels();
+            Object root = XposedHelpers.callMethod(service, "getRootContainer");
+            if (root == null) return getConfiguredDockPanels();
+            Object showing = XposedHelpers.callMethod(root, "getShowingContainer",
+                    (Object) new int[]{2002, 2001});
+            if (showing instanceof java.util.List) {
+                return ((java.util.List<?>) showing).size();
+            }
+        } catch (Throwable ignored) {
+        }
+        return getConfiguredDockPanels();
+    }
+
+    private static int getConfiguredDockPanels() {
+        try {
+            Object activityThread = Class.forName("android.app.ActivityThread")
+                    .getMethod("currentActivityThread").invoke(null);
+            if (activityThread == null) return 0;
+            Object context = activityThread.getClass().getMethod("getSystemContext")
+                    .invoke(activityThread);
+            if (context == null) return 0;
             Object resolver = context.getClass().getMethod("getContentResolver").invoke(context);
+            if (resolver == null) return 0;
             Class<?> cr = Class.forName("android.content.ContentResolver");
             int value = ((Integer) Class.forName("android.provider.Settings$Global")
                     .getMethod("getInt", cr, String.class, int.class)
@@ -80,6 +112,7 @@ public class WindowLimit implements IXposedHookLoadPackage {
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lp) throws Throwable {
         if (lp.packageName == null) return;
         if (!"com.picovr.systemext".equals(lp.packageName)) return;
+        sClassLoader = lp.classLoader;
 
         try {
             Class<?> appStack = XposedHelpers.findClass(
@@ -99,8 +132,9 @@ public class WindowLimit implements IXposedHookLoadPackage {
                     appContainer, new BlockDestroy());
 
             XposedBridge.log(TAG + ": installed (requested=" + readRequestedWindowLimit()
-                    + ", effective=" + getWindowLimit() + ", dockPanels="
-                    + getPersistentDockPanels() + ")");
+                    + ", effective=" + getWindowLimit() + ", liveDockPanels="
+                    + getLiveDockPanels() + ", configuredDockPanels="
+                    + getConfiguredDockPanels() + ")");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": hook failed");
             XposedBridge.log(t);
